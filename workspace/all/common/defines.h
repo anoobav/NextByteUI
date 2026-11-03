@@ -101,9 +101,10 @@ enum
 #define MIN(a, b) (a) < (b) ? (a) : (b)
 #define CEIL_DIV(a,b) ((a) + (b) - 1) / (b)
 
-// UI units become pixels as UI_SCALE_NUM / UI_SCALE_DEN. Whole-number platforms keep FIXED_SCALE / 1. A panel
-// whose size is not a whole multiple of the reference layout sets a fraction, so its logical canvas
-// logical canvas matches the reference canvas, so every layout lands in the same place.
+// UI units become pixels as UI_SCALE_NUM / UI_SCALE_DEN, rounded to the nearest pixel. Whole-number platforms
+// keep FIXED_SCALE / 1 and are unchanged. A platform whose panel is not a whole multiple of the reference
+// layout sets a fraction (see h700/platform/platform.h), so its logical canvas matches the reference canvas
+// and every layout lands in the same place. Prefer one SCALE1 of a sum over a sum of SCALE1s: each call rounds.
 #ifndef UI_SCALE_NUM
 #define UI_SCALE_NUM FIXED_SCALE
 #endif
@@ -112,10 +113,10 @@ enum
 #endif
 #define LOGICAL_HEIGHT (FIXED_HEIGHT * UI_SCALE_DEN / UI_SCALE_NUM)
 
-#define SCALE1(a) ((a)*UI_SCALE_NUM/UI_SCALE_DEN)
-#define SCALE2(a,b) ((a)*UI_SCALE_NUM/UI_SCALE_DEN),((b)*UI_SCALE_NUM/UI_SCALE_DEN)
-#define SCALE3(a,b,c) ((a)*UI_SCALE_NUM/UI_SCALE_DEN),((b)*UI_SCALE_NUM/UI_SCALE_DEN),((c)*UI_SCALE_NUM/UI_SCALE_DEN)
-#define SCALE4(a,b,c,d) ((a)*UI_SCALE_NUM/UI_SCALE_DEN),((b)*UI_SCALE_NUM/UI_SCALE_DEN),((c)*UI_SCALE_NUM/UI_SCALE_DEN),((d)*UI_SCALE_NUM/UI_SCALE_DEN)
+#define SCALE1(a) (((a)*UI_SCALE_NUM + UI_SCALE_DEN/2)/UI_SCALE_DEN)
+#define SCALE2(a,b) SCALE1(a),SCALE1(b)
+#define SCALE3(a,b,c) SCALE1(a),SCALE1(b),SCALE1(c)
+#define SCALE4(a,b,c,d) SCALE1(a),SCALE1(b),SCALE1(c),SCALE1(d)
 
 ///////////////////////////////
 

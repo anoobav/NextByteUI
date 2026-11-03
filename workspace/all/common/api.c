@@ -420,10 +420,24 @@ int GFX_updateColors(void)
 	return 0;
 }
 
-// Which @Nx image set to load. A whole-number UI uses the set cut for it; a fractional UI shrinks the @3x set.
+// Which @Nx image set to load. A whole-number UI uses the set cut for it; a fractional UI averages down the
+// largest set that is installed (@3x, else @2x), so a missing @3x sheet degrades instead of crashing.
 int GFX_uiSheetScale(void)
 {
-	return UI_SCALE_DEN == 1 ? FIXED_SCALE : 3;
+	if (UI_SCALE_DEN == 1) return FIXED_SCALE;
+	static int sheet_scale = 0;
+	if (!sheet_scale)
+	{
+		char path[MAX_PATH];
+		sheet_scale = 3;
+		sprintf(path, RES_PATH "/assets@%ix.png", sheet_scale);
+		if (!exists(path))
+		{
+			sprintf(path, RES_PATH "/assets@%ix.png", 2);
+			if (exists(path)) sheet_scale = 2;
+		}
+	}
+	return sheet_scale;
 }
 
 // Loads an image from the GFX_uiSheetScale() set as 32-bit ARGB, or NULL.
@@ -444,8 +458,10 @@ SDL_Surface* GFX_loadUIImage(const char* path)
 
 	SDL_Surface* sheet = loadSheetImage(path);
 	if (!sheet) return NULL;
-	int w = sheet->w * UI_SCALE_NUM / (UI_SCALE_DEN * GFX_uiSheetScale());
-	int h = sheet->h * UI_SCALE_NUM / (UI_SCALE_DEN * GFX_uiSheetScale());
+	// rounded like SCALE1, so an icon measures the same as the slot the layout cut for it
+	int den = UI_SCALE_DEN * GFX_uiSheetScale();
+	int w = (sheet->w * UI_SCALE_NUM + den / 2) / den;
+	int h = (sheet->h * UI_SCALE_NUM + den / 2) / den;
 	SDL_Surface* out = UI_resampleRect(sheet, &(SDL_Rect){0, 0, sheet->w, sheet->h}, w, h);
 	SDL_FreeSurface(sheet);
 	if (out) SDL_SetSurfaceBlendMode(out, SDL_BLENDMODE_BLEND);

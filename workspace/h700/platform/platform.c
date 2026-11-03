@@ -17,6 +17,7 @@
 #include "platform.h"
 #include "api.h"
 #include "utils.h"
+#include "ui_scale.h"
 
 #include "scaler.h"
 #include <time.h>
@@ -28,6 +29,8 @@
 
 int panel_w = 640;
 int panel_h = 480;
+int ui_scale_num = 480; // pixels per UI unit, as a fraction; see ui_scale.h
+int ui_scale_den = 256;
 double panel_fps = 60.0;
 int needs_portrait_sdl = 0;
 int dev_has_lstick = 0;
@@ -235,6 +238,7 @@ static void detect_device(void) {
 		panel_w = 720;
 		panel_h = 720;
 	}
+	UI_panelScale(panel_w, panel_h, FIXED_SCALE, &ui_scale_num, &ui_scale_den);
 
 	// RGB LEDs: rg40xxv (1 bank), rg40xxh / rgcubexx (2 banks). Require MCU.
 	int is_rg40xxv = exactMatch("rg40xxv", device);

@@ -2245,6 +2245,36 @@ void cleanupImageLoaderPool() {
 }
 ///////////////////////////////////////
 
+// The quick menu's icons, loaded (and, on a fractional UI scale, resampled) once per name instead of on
+// every frame. A name whose file is missing is remembered too, so it is not retried each frame.
+#define QUICK_ICON_CACHE_SIZE 32
+static struct {
+	char name[MAX_PATH];
+	SDL_Surface* bmp;
+} quick_icons[QUICK_ICON_CACHE_SIZE];
+static int quick_icon_count = 0;
+
+static SDL_Surface* QuickMenu_icon(const char* name) {
+	for (int i = 0; i < quick_icon_count; i++)
+		if (!strcmp(quick_icons[i].name, name)) return quick_icons[i].bmp;
+	if (quick_icon_count >= QUICK_ICON_CACHE_SIZE) return NULL;
+
+	char icon_path[MAX_PATH];
+	sprintf(icon_path, SDCARD_PATH "/.system/res/%s@%ix.png", name, GFX_uiSheetScale());
+	SDL_Surface* bmp = GFX_loadUIImage(icon_path);
+	if (bmp) {
+		SDL_Surface* converted = SDL_ConvertSurfaceFormat(bmp, screen->format->format, 0);
+		if (converted) {
+			SDL_FreeSurface(bmp);
+			bmp = converted;
+		}
+	}
+	snprintf(quick_icons[quick_icon_count].name, MAX_PATH, "%s", name);
+	quick_icons[quick_icon_count].bmp = bmp;
+	quick_icon_count++;
+	return bmp;
+}
+
 int main (int argc, char *argv[]) {
 	// LOG_info("time from launch to:\n");
 	// unsigned long main_begin = SDL_GetTicks();
@@ -2742,16 +2772,7 @@ int main (int argc, char *argv[]) {
 
 						GFX_blitRectColor(ASSET_STATE_BG, screen, &item_rect, item_color);
 
-						char icon_path[MAX_PATH];
-						sprintf(icon_path, SDCARD_PATH "/.system/res/%s@%ix.png", item->name, GFX_uiSheetScale());
-						SDL_Surface* bmp = GFX_loadUIImage(icon_path);
-						if(bmp) {
-							SDL_Surface* converted = SDL_ConvertSurfaceFormat(bmp, screen->format->format, 0);
-							if (converted) {
-								SDL_FreeSurface(bmp);
-								bmp = converted;
-							}
-						}
+						SDL_Surface* bmp = QuickMenu_icon(item->name);
 						if(bmp) {
 							// Calculate the position to center the source surface
 							int x = (item_rect.w - bmp->w) / 2;

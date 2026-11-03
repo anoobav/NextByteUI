@@ -166,19 +166,21 @@ extern int needs_portrait_sdl; // DEVICE=rg28xx: SDL rotates onto the portrait p
 #define FIXED_PITCH		(FIXED_WIDTH * FIXED_BPP)
 #define FIXED_SIZE		(FIXED_PITCH * FIXED_HEIGHT)
 
-// The UI is laid out in units on the TrimUI brick's canvas: 1024x768 at 3 is 341x256 units. The 640x480 panels
-// run at 15/8 so they get the same 256-unit height. Every other panel, and HDMI, keeps the whole-number scale
-// (den 1) it always had: they already fit.
-#define UI_FRACTIONAL (!hdmi_active && panel_w==640 && panel_h==480)
-#define UI_SCALE_NUM (UI_FRACTIONAL ? 15 : FIXED_SCALE)
-#define UI_SCALE_DEN (UI_FRACTIONAL ? 8 : 1)
+// The UI is laid out in units on the TrimUI brick's 341x256 canvas. The 640x480 panels draw at a fraction of
+// that (ui_scale_num/den, set once in PLAT_initPlatform, see ui_scale.h) so they get the same canvas; every other
+// panel, and HDMI, keeps the whole-number scale (den 1) it always had.
+extern int ui_scale_num;
+extern int ui_scale_den;
+#define UI_SCALE_NUM (hdmi_active ? FIXED_SCALE : ui_scale_num)
+#define UI_SCALE_DEN (hdmi_active ? 1 : ui_scale_den)
+#define UI_FRACTIONAL (!hdmi_active && ui_scale_den != 1)
 
 ///////////////////////////////
 
 // Rows that fit above the button hints: (logical height - 2*PADDING - PILL_SIZE) / PILL_SIZE. The fractional
-// 640x480 layout is 256 units tall and gets seven rows (seven rows plus the hints only fit with the 5-unit
-// PADDING). Everything else is unchanged: six rows at 10 units on 720x480, ten at 5 on 720p and HDMI.
-#define MAIN_ROW_COUNT (UI_FRACTIONAL ? 7 : ((hdmi_active||panel_h>=720)?10:6))
+// 640x480 layout is 256 units tall and gets seven rows (with the 5-unit PADDING; seven rows plus the hints only
+// fit with it). Everything else is unchanged: six rows at 10 units on 720x480, ten at 5 on 720p and HDMI.
+#define MAIN_ROW_COUNT (UI_FRACTIONAL ? ((FIXED_HEIGHT * UI_SCALE_DEN / UI_SCALE_NUM - 2 * PADDING - PILL_SIZE) / PILL_SIZE) : ((hdmi_active||panel_h>=720)?10:6))
 #define QUICK_SWITCHER_COUNT 3
 #define PADDING ((hdmi_active||panel_h>=720||UI_FRACTIONAL)?5:10)
 
