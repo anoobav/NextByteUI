@@ -166,15 +166,21 @@ extern int needs_portrait_sdl; // DEVICE=rg28xx: SDL rotates onto the portrait p
 #define FIXED_PITCH		(FIXED_WIDTH * FIXED_BPP)
 #define FIXED_SIZE		(FIXED_PITCH * FIXED_HEIGHT)
 
+// The UI is laid out in units on the TrimUI brick's canvas: 1024x768 at 3 is 341x256 units. The 640x480 panels
+// run at 15/8 so they get the same 256-unit height. Every other panel, and HDMI, keeps the whole-number scale
+// (den 1) it always had: they already fit.
+#define UI_FRACTIONAL (!hdmi_active && panel_w==640 && panel_h==480)
+#define UI_SCALE_NUM (UI_FRACTIONAL ? 15 : FIXED_SCALE)
+#define UI_SCALE_DEN (UI_FRACTIONAL ? 8 : 1)
+
 ///////////////////////////////
 
-// Rows that fit above the button hints: (FIXED_HEIGHT/FIXED_SCALE - 2*PADDING - PILL_SIZE) / PILL_SIZE.
-// The 480p layout needs the standard 10-unit padding so six rows and the
-// bottom hints keep the same vertical spacing. The roomier 720p layouts retain
-// their existing 5-unit edge padding.
-#define MAIN_ROW_COUNT ((hdmi_active||panel_h>=720)?10:6)
+// Rows that fit above the button hints: (logical height - 2*PADDING - PILL_SIZE) / PILL_SIZE. The fractional
+// 640x480 layout is 256 units tall and gets seven rows (seven rows plus the hints only fit with the 5-unit
+// PADDING). Everything else is unchanged: six rows at 10 units on 720x480, ten at 5 on 720p and HDMI.
+#define MAIN_ROW_COUNT (UI_FRACTIONAL ? 7 : ((hdmi_active||panel_h>=720)?10:6))
 #define QUICK_SWITCHER_COUNT 3
-#define PADDING ((hdmi_active||panel_h>=720)?5:10)
+#define PADDING ((hdmi_active||panel_h>=720||UI_FRACTIONAL)?5:10)
 
 ///////////////////////////////
 

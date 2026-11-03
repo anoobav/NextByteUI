@@ -310,6 +310,8 @@ enum {
 };
 
 SDL_Surface* GFX_init(int mode);
+SDL_Surface* GFX_loadUIImage(const char* path); // IMG_Load, resampled to the UI scale when it is a fraction
+int GFX_uiSheetScale(void); // which @Nx image set GFX_loadUIImage reads
 #define GFX_resize PLAT_resizeVideo				// (int w, int h, int pitch);
 #define GFX_setSharpness PLAT_setSharpness // (int sharpness)
 #define GFX_setEffectColor PLAT_setEffectColor // (int color)

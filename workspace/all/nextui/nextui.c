@@ -2743,8 +2743,8 @@ int main (int argc, char *argv[]) {
 						GFX_blitRectColor(ASSET_STATE_BG, screen, &item_rect, item_color);
 
 						char icon_path[MAX_PATH];
-						sprintf(icon_path, SDCARD_PATH "/.system/res/%s@%ix.png", item->name, FIXED_SCALE);
-						SDL_Surface* bmp = IMG_Load(icon_path);
+						sprintf(icon_path, SDCARD_PATH "/.system/res/%s@%ix.png", item->name, GFX_uiSheetScale());
+						SDL_Surface* bmp = GFX_loadUIImage(icon_path);
 						if(bmp) {
 							SDL_Surface* converted = SDL_ConvertSurfaceFormat(bmp, screen->format->format, 0);
 							if (converted) {

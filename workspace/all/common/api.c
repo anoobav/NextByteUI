@@ -1,5 +1,6 @@
 #include "defines.h"
 #include "api.h"
+#include "ui_resample.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -97,6 +98,20 @@ int hdmi_active = 0;
 static SDL_Rect asset_rects[ASSET_COUNT];
 static uint32_t asset_rgbs[ASSET_COLORS];
 static SDL_Rect input_rects[INPUT_COUNT];
+// Sheet position and size of each sprite in UI units, before scaling. Needed to cut the sprites out of the
+// large sheet when the UI scale is a fraction.
+static SDL_Rect asset_units[ASSET_COUNT];
+static SDL_Rect input_units[INPUT_COUNT];
+static void setAssetRect(int asset, int x, int y, int w, int h)
+{
+	asset_units[asset] = (SDL_Rect){x, y, w, h};
+	asset_rects[asset] = (SDL_Rect){SCALE4(x, y, w, h)};
+}
+static void setInputRect(int input, int x, int y, int w, int h)
+{
+	input_units[input] = (SDL_Rect){x, y, w, h};
+	input_rects[input] = (SDL_Rect){SCALE4(x, y, w, h)};
+}
 GFX_Fonts font;
 
 ///////////////////////////////
@@ -405,6 +420,60 @@ int GFX_updateColors(void)
 	return 0;
 }
 
+// Which @Nx image set to load. A whole-number UI uses the set cut for it; a fractional UI shrinks the @3x set.
+int GFX_uiSheetScale(void)
+{
+	return UI_SCALE_DEN == 1 ? FIXED_SCALE : 3;
+}
+
+// Loads an image from the GFX_uiSheetScale() set as 32-bit ARGB, or NULL.
+static SDL_Surface* loadSheetImage(const char* path)
+{
+	SDL_Surface* raw = IMG_Load(path);
+	if (!raw) return NULL;
+	SDL_Surface* conv = SDL_ConvertSurfaceFormat(raw, SDL_PIXELFORMAT_ARGB8888, 0);
+	SDL_FreeSurface(raw);
+	return conv;
+}
+
+// A standalone image (system icon) from the GFX_uiSheetScale() set, averaged down to the UI scale when that
+// is a fraction. Whole-number platforms get it back unchanged.
+SDL_Surface* GFX_loadUIImage(const char* path)
+{
+	if (UI_SCALE_DEN == 1) return IMG_Load(path);
+
+	SDL_Surface* sheet = loadSheetImage(path);
+	if (!sheet) return NULL;
+	int w = sheet->w * UI_SCALE_NUM / (UI_SCALE_DEN * GFX_uiSheetScale());
+	int h = sheet->h * UI_SCALE_NUM / (UI_SCALE_DEN * GFX_uiSheetScale());
+	SDL_Surface* out = UI_resampleRect(sheet, &(SDL_Rect){0, 0, sheet->w, sheet->h}, w, h);
+	SDL_FreeSurface(sheet);
+	if (out) SDL_SetSurfaceBlendMode(out, SDL_BLENDMODE_BLEND);
+	return out;
+}
+
+// A sprite sheet whose sprites sit at `rects` (sizes already scaled; positions are rewritten when the UI scale
+// is a fraction, because the sprites are then repacked into their own atlas at their exact scaled sizes).
+static SDL_Surface* GFX_loadSheet(const char* path, const SDL_Rect* units, SDL_Rect* rects, int count)
+{
+	if (UI_SCALE_DEN == 1) return IMG_Load(path);
+
+	SDL_Surface* sheet = loadSheetImage(path);
+	if (!sheet) return NULL;
+	SDL_Rect* src = (SDL_Rect*)calloc(count, sizeof(SDL_Rect));
+	if (!src)
+	{
+		SDL_FreeSurface(sheet);
+		return NULL;
+	}
+	for (int i = 0; i < count; i++)
+		src[i] = (SDL_Rect){units[i].x * GFX_uiSheetScale(), units[i].y * GFX_uiSheetScale(), units[i].w * GFX_uiSheetScale(), units[i].h * GFX_uiSheetScale()};
+	SDL_Surface* atlas = UI_buildAtlas(sheet, src, rects, count, 256);
+	free(src);
+	SDL_FreeSurface(sheet);
+	return atlas;
+}
+
 SDL_Surface *GFX_init(int mode)
 {
 	// Platform init may use the active output to select panel rotation.
@@ -466,107 +535,107 @@ SDL_Surface *GFX_init(int mode)
 	asset_rgbs[ASSET_DOT] = RGB_LIGHT_GRAY;
 	asset_rgbs[ASSET_HOLE] = RGB_BLACK;
 
-	asset_rects[ASSET_WHITE_PILL] = (SDL_Rect){SCALE4(1, 1, 30, 30)};
-	asset_rects[ASSET_BLACK_PILL] = (SDL_Rect){SCALE4(33, 1, 30, 30)};
-	asset_rects[ASSET_DARK_GRAY_PILL] = (SDL_Rect){SCALE4(65, 1, 30, 30)};
-	asset_rects[ASSET_WHITE_RECT] = (SDL_Rect){SCALE4(1+14, 1, 2, 30)}; // two pixels wide, middle of the asset
-	asset_rects[ASSET_BLACK_RECT] = (SDL_Rect){SCALE4(33+14, 1, 2, 30)}; // two pixels wide, middle of the asset
-	asset_rects[ASSET_DARK_GRAY_RECT] = (SDL_Rect){SCALE4(65+14, 1, 2, 30)}; // two pixels wide, middle of the asset
-	asset_rects[ASSET_OPTION] = (SDL_Rect){SCALE4(97, 1, 20, 20)};
-	asset_rects[ASSET_OPTION_RECT] = (SDL_Rect){SCALE4(97+9, 1, 2, 20)}; // two pixels wide, middle of the asset
-	asset_rects[ASSET_BUTTON] = (SDL_Rect){SCALE4(1, 33, 20, 20)};
-	asset_rects[ASSET_BUTTON_RECT] = (SDL_Rect){SCALE4(1+9, 33, 2, 20)}; // two pixels wide, middle of the asset
-	asset_rects[ASSET_PAGE_BG] = (SDL_Rect){SCALE4(64, 33, 15, 15)};
-	asset_rects[ASSET_STATE_BG] = (SDL_Rect){SCALE4(23, 54, 8, 8)};
-	asset_rects[ASSET_PAGE] = (SDL_Rect){SCALE4(39, 54, 6, 6)};
-	asset_rects[ASSET_BAR] = (SDL_Rect){SCALE4(33, 58, 4, 4)};
-	asset_rects[ASSET_BAR_BG] = (SDL_Rect){SCALE4(33, 58, 4, 4)};
-	asset_rects[ASSET_BAR_BG_MENU] = (SDL_Rect){SCALE4(33, 58, 4, 4)};
-	asset_rects[ASSET_UNDERLINE] = (SDL_Rect){SCALE4(85, 51, 3, 3)};
-	asset_rects[ASSET_DOT] = (SDL_Rect){SCALE4(33, 54, 2, 2)};
-	asset_rects[ASSET_BRIGHTNESS] = (SDL_Rect){SCALE4(1, 85, 19, 19)};
-	asset_rects[ASSET_COLORTEMP] = (SDL_Rect){SCALE4(41, 85, 9, 19)};
-	asset_rects[ASSET_VOLUME_MUTE] = (SDL_Rect){SCALE4(21, 85, 10, 19)};
-	asset_rects[ASSET_VOLUME] = (SDL_Rect){SCALE4(21, 85, 19, 19)};
-	asset_rects[ASSET_BATTERY] = (SDL_Rect){SCALE4(47, 51, 17, 10)};
-	asset_rects[ASSET_BATTERY_LOW] = (SDL_Rect){SCALE4(66, 51, 17, 10)};
-	asset_rects[ASSET_BATTERY_FILL] = (SDL_Rect){SCALE4(81, 33, 12, 6)};
-	asset_rects[ASSET_BATTERY_FILL_LOW] = (SDL_Rect){SCALE4(1, 55, 12, 6)};
-	asset_rects[ASSET_BATTERY_BOLT] = (SDL_Rect){SCALE4(81, 41, 12, 6)};
-	asset_rects[ASSET_SCROLL_UP] = (SDL_Rect){SCALE4(97, 23, 24, 6)};
-	asset_rects[ASSET_SCROLL_DOWN] = (SDL_Rect){SCALE4(97, 31, 24, 6)};
-	asset_rects[ASSET_WIFI] = (SDL_Rect){SCALE4(1, 104, 12, 12)};
-	asset_rects[ASSET_WIFI_MED] = (SDL_Rect){SCALE4(14, 104, 12, 12)};
-	asset_rects[ASSET_WIFI_LOW] = (SDL_Rect){SCALE4(27, 104, 12, 12)};
-	asset_rects[ASSET_WIFI_OFF] = (SDL_Rect){SCALE4(40, 104, 12, 12)};
-	asset_rects[ASSET_CHECKCIRCLE] = (SDL_Rect){SCALE4(1, 117, 10, 10)};
-	asset_rects[ASSET_LOCK] = (SDL_Rect){SCALE4(12, 116, 8, 11)};
-	asset_rects[ASSET_TROPHY] = (SDL_Rect){SCALE4(78, 117, 10, 11)};
-	asset_rects[ASSET_HOLE] = (SDL_Rect){SCALE4(1, 63, 20, 20)};
-	asset_rects[ASSET_GAMEPAD] = (SDL_Rect){SCALE4(91, 51, 17, 10)};
-	asset_rects[ASSET_SETTINGS] = (SDL_Rect){SCALE4(21, 117, 10, 10)};
-	asset_rects[ASSET_STORE] = (SDL_Rect){SCALE4(66, 117, 10, 10)};
-	asset_rects[ASSET_POWEROFF] = (SDL_Rect){SCALE4(43, 117, 10, 10)};
-	asset_rects[ASSET_SUSPEND] = (SDL_Rect){SCALE4(32, 117, 10, 10)};
-	asset_rects[ASSET_RESTART] = (SDL_Rect){SCALE4(54, 119, 11, 8)};
-	asset_rects[ASSET_BLUETOOTH] = (SDL_Rect){SCALE4(53, 104, 12, 12)};
-	asset_rects[ASSET_BLUETOOTH_OFF] = (SDL_Rect){SCALE4(66, 104, 12, 12)};
-	asset_rects[ASSET_AUDIO] = (SDL_Rect){SCALE4(79, 104, 12, 12)};
-	asset_rects[ASSET_CONTROLLER] = (SDL_Rect){SCALE4(92, 104, 12, 12)};
+	setAssetRect(ASSET_WHITE_PILL, 1, 1, 30, 30);
+	setAssetRect(ASSET_BLACK_PILL, 33, 1, 30, 30);
+	setAssetRect(ASSET_DARK_GRAY_PILL, 65, 1, 30, 30);
+	setAssetRect(ASSET_WHITE_RECT, 1+14, 1, 2, 30); // two pixels wide, middle of the asset
+	setAssetRect(ASSET_BLACK_RECT, 33+14, 1, 2, 30); // two pixels wide, middle of the asset
+	setAssetRect(ASSET_DARK_GRAY_RECT, 65+14, 1, 2, 30); // two pixels wide, middle of the asset
+	setAssetRect(ASSET_OPTION, 97, 1, 20, 20);
+	setAssetRect(ASSET_OPTION_RECT, 97+9, 1, 2, 20); // two pixels wide, middle of the asset
+	setAssetRect(ASSET_BUTTON, 1, 33, 20, 20);
+	setAssetRect(ASSET_BUTTON_RECT, 1+9, 33, 2, 20); // two pixels wide, middle of the asset
+	setAssetRect(ASSET_PAGE_BG, 64, 33, 15, 15);
+	setAssetRect(ASSET_STATE_BG, 23, 54, 8, 8);
+	setAssetRect(ASSET_PAGE, 39, 54, 6, 6);
+	setAssetRect(ASSET_BAR, 33, 58, 4, 4);
+	setAssetRect(ASSET_BAR_BG, 33, 58, 4, 4);
+	setAssetRect(ASSET_BAR_BG_MENU, 33, 58, 4, 4);
+	setAssetRect(ASSET_UNDERLINE, 85, 51, 3, 3);
+	setAssetRect(ASSET_DOT, 33, 54, 2, 2);
+	setAssetRect(ASSET_BRIGHTNESS, 1, 85, 19, 19);
+	setAssetRect(ASSET_COLORTEMP, 41, 85, 9, 19);
+	setAssetRect(ASSET_VOLUME_MUTE, 21, 85, 10, 19);
+	setAssetRect(ASSET_VOLUME, 21, 85, 19, 19);
+	setAssetRect(ASSET_BATTERY, 47, 51, 17, 10);
+	setAssetRect(ASSET_BATTERY_LOW, 66, 51, 17, 10);
+	setAssetRect(ASSET_BATTERY_FILL, 81, 33, 12, 6);
+	setAssetRect(ASSET_BATTERY_FILL_LOW, 1, 55, 12, 6);
+	setAssetRect(ASSET_BATTERY_BOLT, 81, 41, 12, 6);
+	setAssetRect(ASSET_SCROLL_UP, 97, 23, 24, 6);
+	setAssetRect(ASSET_SCROLL_DOWN, 97, 31, 24, 6);
+	setAssetRect(ASSET_WIFI, 1, 104, 12, 12);
+	setAssetRect(ASSET_WIFI_MED, 14, 104, 12, 12);
+	setAssetRect(ASSET_WIFI_LOW, 27, 104, 12, 12);
+	setAssetRect(ASSET_WIFI_OFF, 40, 104, 12, 12);
+	setAssetRect(ASSET_CHECKCIRCLE, 1, 117, 10, 10);
+	setAssetRect(ASSET_LOCK, 12, 116, 8, 11);
+	setAssetRect(ASSET_TROPHY, 78, 117, 10, 11);
+	setAssetRect(ASSET_HOLE, 1, 63, 20, 20);
+	setAssetRect(ASSET_GAMEPAD, 91, 51, 17, 10);
+	setAssetRect(ASSET_SETTINGS, 21, 117, 10, 10);
+	setAssetRect(ASSET_STORE, 66, 117, 10, 10);
+	setAssetRect(ASSET_POWEROFF, 43, 117, 10, 10);
+	setAssetRect(ASSET_SUSPEND, 32, 117, 10, 10);
+	setAssetRect(ASSET_RESTART, 54, 119, 11, 8);
+	setAssetRect(ASSET_BLUETOOTH, 53, 104, 12, 12);
+	setAssetRect(ASSET_BLUETOOTH_OFF, 66, 104, 12, 12);
+	setAssetRect(ASSET_AUDIO, 79, 104, 12, 12);
+	setAssetRect(ASSET_CONTROLLER, 92, 104, 12, 12);
 
 	char asset_path[MAX_PATH];
-	sprintf(asset_path, RES_PATH "/assets@%ix.png", FIXED_SCALE);
+	sprintf(asset_path, RES_PATH "/assets@%ix.png", GFX_uiSheetScale());
 	if (!exists(asset_path))
 		LOG_info("missing assets, you're about to segfault dummy!\n");
-	gfx.assets = IMG_Load(asset_path);
+	gfx.assets = GFX_loadSheet(asset_path, asset_units, asset_rects, ASSET_COUNT);
 
-	input_rects[INPUT_BUTTON_A] = (SDL_Rect){SCALE4(0, 0, BUTTON_SIZE, BUTTON_SIZE)};
-	input_rects[INPUT_BUTTON_B] = (SDL_Rect){SCALE4(20, 0, BUTTON_SIZE, BUTTON_SIZE)};
-	input_rects[INPUT_BUTTON_X] = (SDL_Rect){SCALE4(40, 0, BUTTON_SIZE, BUTTON_SIZE)};
-	input_rects[INPUT_BUTTON_Y] = (SDL_Rect){SCALE4(60, 0, BUTTON_SIZE, BUTTON_SIZE)};
-	input_rects[INPUT_DPAD_UP] = (SDL_Rect){SCALE4(80, 0, BUTTON_SIZE, BUTTON_SIZE)};
-	input_rects[INPUT_DPAD_DOWN] = (SDL_Rect){SCALE4(100, 0, BUTTON_SIZE, BUTTON_SIZE)};
-	input_rects[INPUT_DPAD_LEFT] = (SDL_Rect){SCALE4(120, 0, BUTTON_SIZE, BUTTON_SIZE)};
-	input_rects[INPUT_DPAD_RIGHT] = (SDL_Rect){SCALE4(140, 0, BUTTON_SIZE, BUTTON_SIZE)};
-	input_rects[INPUT_DPAD_UP_DOWN] = (SDL_Rect){SCALE4(160, 0, BUTTON_SIZE, BUTTON_SIZE)};
-	input_rects[INPUT_DPAD_LEFT_RIGHT] = (SDL_Rect){SCALE4(180, 0, BUTTON_SIZE, BUTTON_SIZE)};
-	input_rects[INPUT_DPAD_ALL] = (SDL_Rect){SCALE4(200, 0, BUTTON_SIZE, BUTTON_SIZE)};
-	input_rects[INPUT_DPAD] = (SDL_Rect){SCALE4(220, 0, BUTTON_SIZE, BUTTON_SIZE)};
+	setInputRect(INPUT_BUTTON_A, 0, 0, BUTTON_SIZE, BUTTON_SIZE);
+	setInputRect(INPUT_BUTTON_B, 20, 0, BUTTON_SIZE, BUTTON_SIZE);
+	setInputRect(INPUT_BUTTON_X, 40, 0, BUTTON_SIZE, BUTTON_SIZE);
+	setInputRect(INPUT_BUTTON_Y, 60, 0, BUTTON_SIZE, BUTTON_SIZE);
+	setInputRect(INPUT_DPAD_UP, 80, 0, BUTTON_SIZE, BUTTON_SIZE);
+	setInputRect(INPUT_DPAD_DOWN, 100, 0, BUTTON_SIZE, BUTTON_SIZE);
+	setInputRect(INPUT_DPAD_LEFT, 120, 0, BUTTON_SIZE, BUTTON_SIZE);
+	setInputRect(INPUT_DPAD_RIGHT, 140, 0, BUTTON_SIZE, BUTTON_SIZE);
+	setInputRect(INPUT_DPAD_UP_DOWN, 160, 0, BUTTON_SIZE, BUTTON_SIZE);
+	setInputRect(INPUT_DPAD_LEFT_RIGHT, 180, 0, BUTTON_SIZE, BUTTON_SIZE);
+	setInputRect(INPUT_DPAD_ALL, 200, 0, BUTTON_SIZE, BUTTON_SIZE);
+	setInputRect(INPUT_DPAD, 220, 0, BUTTON_SIZE, BUTTON_SIZE);
 
-	input_rects[INPUT_BUTTON_A_ALT1] = (SDL_Rect){SCALE4(0, 20, BUTTON_SIZE, BUTTON_SIZE)};
-	input_rects[INPUT_BUTTON_B_ALT1] = (SDL_Rect){SCALE4(20, 20, BUTTON_SIZE, BUTTON_SIZE)};
-	input_rects[INPUT_BUTTON_X_ALT1] = (SDL_Rect){SCALE4(40, 20, BUTTON_SIZE, BUTTON_SIZE)};
-	input_rects[INPUT_BUTTON_Y_ALT1] = (SDL_Rect){SCALE4(60, 20, BUTTON_SIZE, BUTTON_SIZE)};
-	input_rects[INPUT_DPAD_UP_ALT1] = (SDL_Rect){SCALE4(80, 20, BUTTON_SIZE, BUTTON_SIZE)};
-	input_rects[INPUT_DPAD_DOWN_ALT1] = (SDL_Rect){SCALE4(100, 20, BUTTON_SIZE, BUTTON_SIZE)};
-	input_rects[INPUT_DPAD_LEFT_ALT1] = (SDL_Rect){SCALE4(120, 20, BUTTON_SIZE, BUTTON_SIZE)};
-	input_rects[INPUT_DPAD_RIGHT_ALT1] = (SDL_Rect){SCALE4(140, 20, BUTTON_SIZE, BUTTON_SIZE)};
-	input_rects[INPUT_DPAD_UP_DOWN_ALT1] = (SDL_Rect){SCALE4(160, 20, BUTTON_SIZE, BUTTON_SIZE)};
-	input_rects[INPUT_DPAD_LEFT_RIGHT_ALT1] = (SDL_Rect){SCALE4(180, 20, BUTTON_SIZE, BUTTON_SIZE)};
-	input_rects[INPUT_DPAD_ALL_ALT1] = (SDL_Rect){SCALE4(200, 20, BUTTON_SIZE, BUTTON_SIZE)};
-	input_rects[INPUT_DPAD_ALT1] = (SDL_Rect){SCALE4(220, 20, BUTTON_SIZE, BUTTON_SIZE)};
+	setInputRect(INPUT_BUTTON_A_ALT1, 0, 20, BUTTON_SIZE, BUTTON_SIZE);
+	setInputRect(INPUT_BUTTON_B_ALT1, 20, 20, BUTTON_SIZE, BUTTON_SIZE);
+	setInputRect(INPUT_BUTTON_X_ALT1, 40, 20, BUTTON_SIZE, BUTTON_SIZE);
+	setInputRect(INPUT_BUTTON_Y_ALT1, 60, 20, BUTTON_SIZE, BUTTON_SIZE);
+	setInputRect(INPUT_DPAD_UP_ALT1, 80, 20, BUTTON_SIZE, BUTTON_SIZE);
+	setInputRect(INPUT_DPAD_DOWN_ALT1, 100, 20, BUTTON_SIZE, BUTTON_SIZE);
+	setInputRect(INPUT_DPAD_LEFT_ALT1, 120, 20, BUTTON_SIZE, BUTTON_SIZE);
+	setInputRect(INPUT_DPAD_RIGHT_ALT1, 140, 20, BUTTON_SIZE, BUTTON_SIZE);
+	setInputRect(INPUT_DPAD_UP_DOWN_ALT1, 160, 20, BUTTON_SIZE, BUTTON_SIZE);
+	setInputRect(INPUT_DPAD_LEFT_RIGHT_ALT1, 180, 20, BUTTON_SIZE, BUTTON_SIZE);
+	setInputRect(INPUT_DPAD_ALL_ALT1, 200, 20, BUTTON_SIZE, BUTTON_SIZE);
+	setInputRect(INPUT_DPAD_ALT1, 220, 20, BUTTON_SIZE, BUTTON_SIZE);
 
-	input_rects[INPUT_BUTTON_A_ALT2] = (SDL_Rect){SCALE4(0, 40, BUTTON_SIZE, BUTTON_SIZE)};
-	input_rects[INPUT_BUTTON_B_ALT2] = (SDL_Rect){SCALE4(20, 40, BUTTON_SIZE, BUTTON_SIZE)};
-	input_rects[INPUT_BUTTON_X_ALT2] = (SDL_Rect){SCALE4(40, 40, BUTTON_SIZE, BUTTON_SIZE)};
-	input_rects[INPUT_BUTTON_Y_ALT2] = (SDL_Rect){SCALE4(60, 40, BUTTON_SIZE, BUTTON_SIZE)};
-	input_rects[INPUT_DPAD_UP_ALT2] = (SDL_Rect){SCALE4(80, 40, BUTTON_SIZE, BUTTON_SIZE)};
-	input_rects[INPUT_DPAD_DOWN_ALT2] = (SDL_Rect){SCALE4(100, 40, BUTTON_SIZE, BUTTON_SIZE)};
-	input_rects[INPUT_DPAD_LEFT_ALT2] = (SDL_Rect){SCALE4(120, 40, BUTTON_SIZE, BUTTON_SIZE)};
-	input_rects[INPUT_DPAD_RIGHT_ALT2] = (SDL_Rect){SCALE4(140, 40, BUTTON_SIZE, BUTTON_SIZE)};
-	input_rects[INPUT_DPAD_UP_DOWN_ALT2] = (SDL_Rect){SCALE4(160, 40, BUTTON_SIZE, BUTTON_SIZE)};
-	input_rects[INPUT_DPAD_LEFT_RIGHT_ALT2] = (SDL_Rect){SCALE4(180, 40, BUTTON_SIZE, BUTTON_SIZE)};
-	input_rects[INPUT_DPAD_ALL_ALT2] = (SDL_Rect){SCALE4(200, 40, BUTTON_SIZE, BUTTON_SIZE)};
-	input_rects[INPUT_DPAD_ALT2] = (SDL_Rect){SCALE4(220, 40, BUTTON_SIZE, BUTTON_SIZE)};
+	setInputRect(INPUT_BUTTON_A_ALT2, 0, 40, BUTTON_SIZE, BUTTON_SIZE);
+	setInputRect(INPUT_BUTTON_B_ALT2, 20, 40, BUTTON_SIZE, BUTTON_SIZE);
+	setInputRect(INPUT_BUTTON_X_ALT2, 40, 40, BUTTON_SIZE, BUTTON_SIZE);
+	setInputRect(INPUT_BUTTON_Y_ALT2, 60, 40, BUTTON_SIZE, BUTTON_SIZE);
+	setInputRect(INPUT_DPAD_UP_ALT2, 80, 40, BUTTON_SIZE, BUTTON_SIZE);
+	setInputRect(INPUT_DPAD_DOWN_ALT2, 100, 40, BUTTON_SIZE, BUTTON_SIZE);
+	setInputRect(INPUT_DPAD_LEFT_ALT2, 120, 40, BUTTON_SIZE, BUTTON_SIZE);
+	setInputRect(INPUT_DPAD_RIGHT_ALT2, 140, 40, BUTTON_SIZE, BUTTON_SIZE);
+	setInputRect(INPUT_DPAD_UP_DOWN_ALT2, 160, 40, BUTTON_SIZE, BUTTON_SIZE);
+	setInputRect(INPUT_DPAD_LEFT_RIGHT_ALT2, 180, 40, BUTTON_SIZE, BUTTON_SIZE);
+	setInputRect(INPUT_DPAD_ALL_ALT2, 200, 40, BUTTON_SIZE, BUTTON_SIZE);
+	setInputRect(INPUT_DPAD_ALT2, 220, 40, BUTTON_SIZE, BUTTON_SIZE);
 
-	input_rects[INPUT_BUTTON_HOME] = (SDL_Rect){SCALE4(0, 60, BUTTON_SIZE, BUTTON_SIZE)};
-	input_rects[INPUT_BUTTON_POWER] = (SDL_Rect){SCALE4(20, 60, BUTTON_SIZE, BUTTON_SIZE)};
+	setInputRect(INPUT_BUTTON_HOME, 0, 60, BUTTON_SIZE, BUTTON_SIZE);
+	setInputRect(INPUT_BUTTON_POWER, 20, 60, BUTTON_SIZE, BUTTON_SIZE);
 
 	char input_path[MAX_PATH];
-	sprintf(input_path, RES_PATH "/inputs@%ix.png", FIXED_SCALE);
+	sprintf(input_path, RES_PATH "/inputs@%ix.png", GFX_uiSheetScale());
 	if (!exists(input_path))
 		LOG_info("missing inputs, you're about to segfault dummy!\n");
-	gfx.inputs = IMG_Load(input_path);
+	gfx.inputs = GFX_loadSheet(input_path, input_units, input_rects, INPUT_COUNT);
 
 	PLAT_clearAll();
 
@@ -1957,7 +2026,7 @@ void GFX_blitPillColor(int asset, SDL_Surface *dst, SDL_Rect *dst_rect, uint32_t
 		}
 		x += w;
 	}
-	GFX_blitAssetColor(asset, &(SDL_Rect){r, 0, r, h}, dst, &(SDL_Rect){x, y}, asset_color);
+	GFX_blitAssetColor(asset, &(SDL_Rect){r, 0, h - r, h}, dst, &(SDL_Rect){x, y}, asset_color); // h - r: odd heights keep their last column
 }
 void GFX_blitPill(int asset, SDL_Surface *dst, SDL_Rect *dst_rect)
 {
@@ -2010,14 +2079,15 @@ void GFX_blitRectColor(int asset, SDL_Surface *dst, SDL_Rect *dst_rect, uint32_t
 	SDL_Rect *rect = &asset_rects[asset];
 	int d = rect->w;
 	int r = d / 2;
+	int r2 = d - r; // odd sizes: the far half is one pixel wider, or a seam shows between the halves
 
 	GFX_blitAssetColor(asset, &(SDL_Rect){0, 0, r, r}, dst, &(SDL_Rect){x, y}, asset_color);
 	SDL_FillRect(dst, &(SDL_Rect){x + r, y, w - d, r}, asset_color);
-	GFX_blitAssetColor(asset, &(SDL_Rect){r, 0, r, r}, dst, &(SDL_Rect){x + w - r, y}, asset_color);
+	GFX_blitAssetColor(asset, &(SDL_Rect){r, 0, r2, r}, dst, &(SDL_Rect){x + w - r2, y}, asset_color);
 	SDL_FillRect(dst, &(SDL_Rect){x, y + r, w, h - d}, asset_color);
-	GFX_blitAssetColor(asset, &(SDL_Rect){0, r, r, r}, dst, &(SDL_Rect){x, y + h - r}, asset_color);
-	SDL_FillRect(dst, &(SDL_Rect){x + r, y + h - r, w - d, r}, asset_color);
-	GFX_blitAssetColor(asset, &(SDL_Rect){r, r, r, r}, dst, &(SDL_Rect){x + w - r, y + h - r}, asset_color);
+	GFX_blitAssetColor(asset, &(SDL_Rect){0, r, r, r2}, dst, &(SDL_Rect){x, y + h - r2}, asset_color);
+	SDL_FillRect(dst, &(SDL_Rect){x + r, y + h - r2, w - d, r2}, asset_color);
+	GFX_blitAssetColor(asset, &(SDL_Rect){r, r, r2, r2}, dst, &(SDL_Rect){x + w - r2, y + h - r2}, asset_color);
 }
 
 void GFX_assetRect(int asset, SDL_Rect *dst_rect)
@@ -2389,7 +2459,7 @@ int GFX_blitHardwareGroup(SDL_Surface *dst, int show_setting)
 
 			GFX_blitPillColor(ASSET_WHITE_PILL, dst, &(SDL_Rect){ox, oy, ow, SCALE1(PILL_SIZE)}, THEME_COLOR2, RGB_WHITE);
 
-			int battery_x = ox + (SCALE1(PILL_SIZE) - (battery_rect.w + FIXED_SCALE)) / 2;
+			int battery_x = ox + (SCALE1(PILL_SIZE) - (battery_rect.w + SCALE1(1))) / 2;
 			int battery_y = oy + (SCALE1(PILL_SIZE) - battery_rect.h) / 2;
 
 			GFX_blitBatteryAtPosition(dst, battery_x, battery_y);
